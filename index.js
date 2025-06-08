@@ -155,6 +155,45 @@ app.get('/check-tokens', async (req, res) => {
   }
 });
 
+app.post('/test-notify', async (req, res) => {
+  const snapshot = await db.ref('device_tokens').once('value');
+  const tokensData = snapshot.val() || {};
+
+  const tokens = Object.values(tokensData)
+    .map(item => item.token)
+    .filter(token => typeof token === 'string');
+
+  if (tokens.length === 0) {
+    return res.status(400).json({ error: "Tidak ada token tersimpan." });
+  }
+
+  const message = {
+    to: tokens[0], // ambil token pertama
+    sound: 'default',
+    title: 'Tes Notifikasi',
+    body: 'Ini dari endpoint /test-notify',
+    data: { test: 'ya' }
+  };
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    });
+
+    const result = await response.json();
+    console.log("Hasil:", result);
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Gagal kirim notifikasi', detail: err.message });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
