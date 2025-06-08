@@ -7,7 +7,14 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json()); // untuk parsing JSON di request body
 
-const serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
+let serviceAccount;
+
+try {
+  serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
+} catch (err) {
+  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa formatnya!", err);
+  process.exit(1); // hentikan app
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
