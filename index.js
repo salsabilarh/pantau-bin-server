@@ -64,7 +64,7 @@ async function sendNotification(tokens, title, body) {
     });
 
     const data = await res.json();
-    console.log("📨 Notifikasi dikirim (Expo):", data);
+    console.log("Notifikasi dikirim (Expo):", data);
   } catch (err) {
     console.error("Gagal kirim notifikasi:", err);
   }
@@ -93,12 +93,12 @@ compartmentsRef.on("child_changed", async (snapshot) => {
   if (!key || volume == null) return;
 
   const now = Date.now();
-  const threshold = 80;
+  const threshold = 81;
 
   if (volume < threshold) {
     // Reset lastNotified jika volume turun
     if (lastNotified[key]) {
-      console.log(`🔁 Volume ${key} turun di bawah ambang batas. Reset notifikasi.`);
+      console.log(`Volume ${key} turun di bawah ambang batas. Reset notifikasi.`);
       delete lastNotified[key];
     }
     return;
@@ -106,7 +106,7 @@ compartmentsRef.on("child_changed", async (snapshot) => {
 
   // Jika volume >= 80%, dan belum dikirim notifikasi sejak naik lagi
   if (lastNotified[key] && now - lastNotified[key] < cooldownMs) {
-    console.log(`🔕 ${key} sudah dikirim notifikasi dalam 10 menit.`);
+    console.log(`${key} sudah dikirim notifikasi dalam 10 menit.`);
     return;
   }
 
@@ -118,7 +118,7 @@ compartmentsRef.on("child_changed", async (snapshot) => {
       .filter(token => typeof token === 'string' && token.startsWith("ExponentPushToken"));
 
     if (!tokens.length) {
-      console.log("❌ Tidak ada token yang tersimpan.");
+      console.log("Tidak ada token yang tersimpan.");
       return;
     }
 
@@ -128,9 +128,9 @@ compartmentsRef.on("child_changed", async (snapshot) => {
 
     await sendNotification(tokens, title, body);
     lastNotified[key] = now;
-    console.log(`📢 Notifikasi dikirim untuk ${key} di volume ${volume}%`);
+    console.log(`Notifikasi dikirim untuk ${key} di volume ${volume}%`);
   } catch (err) {
-    console.error("⚠️ Gagal proses notifikasi real-time:", err);
+    console.error("Gagal proses notifikasi real-time:", err);
   }
 });
 
