@@ -26,6 +26,7 @@ app.post('/register-token', async (req, res) => {
 
   try {
     await db.ref(`device_tokens/${userId}`).set({ token });
+    console.log("Token diterima dari app:", token, "untuk user:", userId);
     res.json({ success: true, message: 'Token berhasil disimpan' });
   } catch (error) {
     res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
@@ -103,19 +104,6 @@ async function checkCompartments() {
     }
   });
 }
-
-app.post('/test-notif', async (req, res) => {
-  const tokensRef = db.ref('device_tokens');
-  const tokensSnapshot = await tokensRef.once('value');
-  const tokensData = tokensSnapshot.val() || {};
-
-  const tokens = Object.values(tokensData)
-    .map(item => item.token)
-    .filter(token => token && token.startsWith('ExponentPushToken'));
-
-  await sendNotification(tokens, 'Tes Notifikasi', 'Notifikasi berhasil dikirim dari backend.');
-  res.json({ success: true });
-});
 
 // Fungsi helper untuk nama sensor
 function getSensorName(key) {
