@@ -34,7 +34,7 @@ app.post('/register-token', async (req, res) => {
 
   try {
     await db.ref(`device_tokens/${userId}`).set({ token });
-    console.log("✅ Token Expo diterima:", token, "untuk user:", userId);
+    console.log("Token Expo diterima:", token, "untuk user:", userId);
     res.json({ success: true, message: 'Token berhasil disimpan' });
   } catch (error) {
     res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
@@ -66,7 +66,7 @@ async function sendNotification(tokens, title, body) {
     const data = await res.json();
     console.log("📨 Notifikasi dikirim (Expo):", data);
   } catch (err) {
-    console.error("❌ Gagal kirim notifikasi:", err);
+    console.error("Gagal kirim notifikasi:", err);
   }
 }
 
@@ -87,24 +87,30 @@ const cooldownMs = 10 * 60 * 1000; // 10 menit
 const compartmentsRef = db.ref("compartments");
 
 compartmentsRef.on("child_changed", async (snapshot) => {
-  const key = snapshot.key;      // Misal: 'botol'
-  const volume = snapshot.val(); // Misal: 85
+  const key = snapshot.key;
+  const volume = snapshot.val();
 
   if (!key || volume == null) return;
 
   const now = Date.now();
   const threshold = 80;
 
-  if (volume < threshold) return; // tidak cukup penuh
+  if (volume < threshold) {
+    // Reset lastNotified jika volume turun
+    if (lastNotified[key]) {
+      console.log(`🔁 Volume ${key} turun di bawah ambang batas. Reset notifikasi.`);
+      delete lastNotified[key];
+    }
+    return;
+  }
 
-  // Cek apakah sudah dikirim notifikasi dalam 10 menit terakhir
+  // Jika volume >= 80%, dan belum dikirim notifikasi sejak naik lagi
   if (lastNotified[key] && now - lastNotified[key] < cooldownMs) {
     console.log(`🔕 ${key} sudah dikirim notifikasi dalam 10 menit.`);
     return;
   }
 
   try {
-    // Ambil semua token pengguna
     const tokenSnap = await db.ref("device_tokens").once("value");
     const tokensData = tokenSnap.val() || {};
     const tokens = Object.values(tokensData)
@@ -122,6 +128,7 @@ compartmentsRef.on("child_changed", async (snapshot) => {
 
     await sendNotification(tokens, title, body);
     lastNotified[key] = now;
+    console.log(`📢 Notifikasi dikirim untuk ${key} di volume ${volume}%`);
   } catch (err) {
     console.error("⚠️ Gagal proses notifikasi real-time:", err);
   }
@@ -143,5 +150,5 @@ app.get('/check-tokens', async (req, res) => {
 
 // Start server
 app.listen(port, () => {
-  console.log(`🚀 Server berjalan di port ${port}`);
+  console.log(`Server berjalan di port ${port}`);
 });
