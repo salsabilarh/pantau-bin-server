@@ -134,6 +134,27 @@ app.post('/trigger-check', async (req, res) => {
   res.json({ success: true, message: 'Pemeriksaan manual selesai' });
 });
 
+// Endpoint: Lihat semua token yang tersimpan di database
+app.get('/check-tokens', async (req, res) => {
+  try {
+    const snapshot = await db.ref('device_tokens').once('value');
+    const tokensData = snapshot.val();
+
+    if (!tokensData) {
+      return res.status(404).json({ success: false, message: 'Belum ada token tersimpan.' });
+    }
+
+    const result = Object.entries(tokensData).map(([userId, data]) => ({
+      userId,
+      token: data.token,
+    }));
+
+    res.json({ success: true, tokens: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Gagal membaca token.', error: err.message });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
