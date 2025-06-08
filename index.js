@@ -1,19 +1,19 @@
 require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
-const fetch = require('node-fetch'); // Untuk kirim notifikasi ke Expo
+const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// 🔐 Firebase Admin setup
 let serviceAccount;
-
 try {
   serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 } catch (err) {
-  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa formatnya!", err);
+  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa format!", err);
   process.exit(1);
 }
 
@@ -24,7 +24,7 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Endpoint: Simpan token dari Expo app
+// 🔒 Simpan token dari aplikasi
 app.post('/register-token', async (req, res) => {
   const { token, userId } = req.body;
 
@@ -34,17 +34,17 @@ app.post('/register-token', async (req, res) => {
 
   try {
     await db.ref(`device_tokens/${userId}`).set({ token });
-    console.log("Token Expo diterima:", token, "untuk user:", userId);
+    console.log("✅ Token Expo diterima:", token, "untuk user:", userId);
     res.json({ success: true, message: 'Token berhasil disimpan' });
   } catch (error) {
     res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
   }
 });
 
-// Fungsi untuk kirim notifikasi via Expo Push API
+// 🚀 Fungsi kirim notifikasi via Expo Push API
 async function sendNotification(tokens, title, body) {
   if (!tokens || tokens.length === 0) {
-    console.log("Tidak ada token yang tersedia.");
+    console.log("⚠️ Tidak ada token tersedia.");
     return;
   }
 
@@ -67,56 +67,61 @@ async function sendNotification(tokens, title, body) {
     });
 
     const data = await response.json();
-    console.log("Notifikasi dikirim (Expo):", data);
+    console.log("📤 Notifikasi dikirim (Expo):", data);
   } catch (error) {
-    console.error('Gagal kirim notifikasi via Expo:', error);
+    console.error('❌ Gagal kirim notifikasi via Expo:', error);
   }
 }
 
-// Fungsi untuk cek volume kompartemen
-async function checkCompartments() {
-  const ref = db.ref('compartments');
-  const snapshot = await ref.once('value');
-  const data = snapshot.val();
+// 🔔 Notifikasi otomatis saat volume melebihi threshold
+let lastNotified = {}; // Cache waktu notifikasi per kompartemen
 
-  if (!data) {
-    console.log("Data kompartemen tidak ditemukan.");
-    return;
-  }
+const compartmentsRef = db.ref("compartments");
+
+compartmentsRef.on("value", async (snapshot) => {
+  const data = snapshot.val();
+  if (!data) return;
 
   const threshold = 80;
+  const now = Date.now();
   const compartmentsToCheck = ['botol', 'kaleng', 'kertas', 'lainnya'];
-  const fullCompartments = compartmentsToCheck.filter(key => data[key] >= threshold);
+
+  const fullCompartments = compartmentsToCheck.filter(key => {
+    const isFull = data[key] >= threshold;
+    const recentlyNotified = lastNotified[key] && (now - lastNotified[key] < 10 * 60 * 1000); // 10 menit cooldown
+    return isFull && !recentlyNotified;
+  });
 
   if (fullCompartments.length > 0) {
-    const tokensRef = db.ref('device_tokens');
-    const tokensSnapshot = await tokensRef.once('value');
+    const tokensSnapshot = await db.ref('device_tokens').once('value');
     const tokensData = tokensSnapshot.val() || {};
-
     const tokens = Object.values(tokensData)
       .map(item => item.token)
       .filter(token => token && typeof token === 'string');
 
     if (tokens.length === 0) {
-      console.log("Tidak ada token pengguna terdaftar.");
+      console.log("⚠️ Tidak ada token pengguna terdaftar.");
       return;
     }
 
     for (const compartment of fullCompartments) {
       const name = getSensorName(compartment);
       const volume = data[compartment];
+
       await sendNotification(
         tokens,
         `Kompartemen ${name} Penuh!`,
         `Volume ${name} telah mencapai ${volume}%. Segera kosongkan.`
       );
+
+      lastNotified[compartment] = now;
     }
   } else {
-    console.log("Semua kompartemen masih di bawah ambang batas.");
+    console.log("✅ Tidak ada kompartemen yang penuh saat ini.");
   }
-}
+});
 
-// Helper nama sensor
+// 🔍 Fungsi helper
 function getSensorName(key) {
   return key === 'botol' ? 'Botol' :
          key === 'kaleng' ? 'Kaleng' :
@@ -125,16 +130,7 @@ function getSensorName(key) {
          key;
 }
 
-// Jalankan pemeriksaan otomatis tiap 1 menit
-setInterval(checkCompartments, 60 * 1000);
-
-// Endpoint untuk trigger manual (untuk testing)
-app.post('/trigger-check', async (req, res) => {
-  await checkCompartments();
-  res.json({ success: true, message: 'Pemeriksaan manual selesai' });
-});
-
-// Endpoint: Lihat semua token yang tersimpan di database
+// 🛠 Endpoint cek token manual (opsional)
 app.get('/check-tokens', async (req, res) => {
   try {
     const snapshot = await db.ref('device_tokens').once('value');
@@ -155,48 +151,8 @@ app.get('/check-tokens', async (req, res) => {
   }
 });
 
-app.post('/test-notify', async (req, res) => {
-  const snapshot = await db.ref('device_tokens').once('value');
-  const tokensData = snapshot.val() || {};
-
-  const tokens = Object.values(tokensData)
-    .map(item => item.token)
-    .filter(token => typeof token === 'string');
-
-  if (tokens.length === 0) {
-    return res.status(400).json({ error: "Tidak ada token tersimpan." });
-  }
-
-  const message = {
-    to: tokens[0], // ambil token pertama
-    sound: 'default',
-    title: 'Tes Notifikasi',
-    body: 'Ini dari endpoint /test-notify',
-    data: { test: 'ya' }
-  };
-
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-
-    const result = await response.json();
-    console.log("Hasil:", result);
-    res.json({ success: true, result });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Gagal kirim notifikasi', detail: err.message });
-  }
-});
-
-// Start server
+// 🚀 Start server
 app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-  console.log("Server pemantauan sampah aktif...");
-  checkCompartments(); // Langsung cek saat server mulai
+  console.log(`🌐 Server listening on port ${port}`);
+  console.log("📡 Menunggu perubahan volume sampah...");
 });
