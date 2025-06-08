@@ -1,20 +1,13 @@
-require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
+const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json()); // untuk parsing JSON di request body
 
-let serviceAccount;
-
-try {
-  serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
-} catch (err) {
-  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa formatnya!", err);
-  process.exit(1); // hentikan app
-}
+const serviceAccount = require('./firebase-adminsdk.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -40,7 +33,22 @@ app.post('/register-token', async (req, res) => {
   }
 });
 
-const fetch = require('node-fetch');
+app.post('/test-notif', async (req, res) => {
+  const tokensRef = db.ref('device_tokens');
+  const tokensSnapshot = await tokensRef.once('value');
+  const tokensData = tokensSnapshot.val() || {};
+
+  const tokens = Object.values(tokensData)
+    .map(item => item.token)
+    .filter(token => token && token.startsWith('ExponentPushToken'));
+
+  if (tokens.length === 0) {
+    return res.status(400).json({ error: 'Tidak ada token tersedia' });
+  }
+
+  await sendNotification(tokens, 'Tes Notifikasi', 'Berhasil mengirim notifikasi dari backend!');
+  res.json({ success: true });
+});
 
 async function sendNotification(tokens, title, body) {
   if (!tokens || tokens.length === 0) {
