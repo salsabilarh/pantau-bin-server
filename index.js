@@ -40,6 +40,8 @@ async function sendNotification(tokens, title, body) {
     return;
   }
 
+  const fetch = (await import('node-fetch')).default;
+
   const messages = tokens.map(token => ({
     to: token,
     sound: 'default',
