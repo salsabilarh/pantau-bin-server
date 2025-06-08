@@ -1,6 +1,12 @@
 require('dotenv').config();
-
+const express = require('express');
 const admin = require('firebase-admin');
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(express.json()); // untuk parsing JSON di request body
+
 const serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 
 admin.initializeApp({
@@ -10,7 +16,23 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Kirim notifikasi FCM
+// Endpoint: Simpan token dari Expo app
+app.post('/register-token', async (req, res) => {
+  const { token, userId } = req.body;
+
+  if (!token || !userId) {
+    return res.status(400).json({ error: 'token dan userId wajib diisi' });
+  }
+
+  try {
+    await db.ref(`device_tokens/${userId}`).set({ token });
+    res.json({ success: true, message: 'Token berhasil disimpan' });
+  } catch (error) {
+    res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
+  }
+});
+
+// Fungsi untuk kirim notifikasi FCM
 async function sendNotification(tokens, title, body) {
   if (tokens.length === 0) {
     console.log("Tidak ada device token.");
@@ -30,7 +52,7 @@ async function sendNotification(tokens, title, body) {
   }
 }
 
-// Cek volume kompartemen
+// Fungsi untuk cek volume kompartemen
 async function checkCompartments() {
   const ref = db.ref('compartments');
   ref.once('value', async (snapshot) => {
@@ -67,6 +89,7 @@ async function checkCompartments() {
   });
 }
 
+// Fungsi helper untuk nama sensor
 function getSensorName(key) {
   return key === 'botol' ? 'Botol' :
          key === 'kaleng' ? 'Kaleng' :
@@ -78,5 +101,9 @@ function getSensorName(key) {
 // Jalankan setiap 1 menit
 setInterval(checkCompartments, 60 * 1000);
 
-console.log("Server pantau volume sampah aktif...");
-checkCompartments();
+// Jalankan Express server
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+  console.log("Server pantau volume sampah aktif...");
+  checkCompartments(); // Jalankan langsung saat startup
+});
