@@ -8,12 +8,12 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🔐 Firebase Admin setup
 let serviceAccount;
+
 try {
   serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 } catch (err) {
-  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa format!", err);
+  console.error("Gagal parse SERVICE_ACCOUNT_KEY. Periksa formatnya!", err);
   process.exit(1);
 }
 
@@ -24,12 +24,16 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// 🔒 Simpan token dari aplikasi
+// Endpoint: Simpan token dari Expo app
 app.post('/register-token', async (req, res) => {
   const { token, userId } = req.body;
 
   if (!token || !userId) {
     return res.status(400).json({ error: 'token dan userId wajib diisi' });
+  }
+
+  if (!token.startsWith('ExponentPushToken')) {
+    return res.status(400).json({ error: 'Token tidak valid (bukan Expo).' });
   }
 
   try {
@@ -41,10 +45,10 @@ app.post('/register-token', async (req, res) => {
   }
 });
 
-// 🚀 Fungsi kirim notifikasi via Expo Push API
+// Fungsi kirim notifikasi via Expo Push API
 async function sendNotification(tokens, title, body) {
   if (!tokens || tokens.length === 0) {
-    console.log("⚠️ Tidak ada token tersedia.");
+    console.log("⚠️ Tidak ada token untuk dikirim.");
     return;
   }
 
@@ -69,68 +73,65 @@ async function sendNotification(tokens, title, body) {
     const data = await response.json();
     console.log("📤 Notifikasi dikirim (Expo):", data);
   } catch (error) {
-    console.error('❌ Gagal kirim notifikasi via Expo:', error);
+    console.error("❌ Gagal kirim notifikasi:", error);
   }
 }
 
-// 🔔 Notifikasi otomatis saat volume melebihi threshold
-let lastNotified = {}; // Cache waktu notifikasi per kompartemen
+// Cache notifikasi terakhir per kompartemen (hindari spam)
+const lastNotified = {};
 
+// Jalankan listener real-time
 const compartmentsRef = db.ref("compartments");
-
 compartmentsRef.on("value", async (snapshot) => {
   const data = snapshot.val();
   if (!data) return;
 
   const threshold = 80;
   const now = Date.now();
-  const compartmentsToCheck = ['botol', 'kaleng', 'kertas', 'lainnya'];
+  const compartments = ['botol', 'kaleng', 'kertas', 'lainnya'];
 
-  const fullCompartments = compartmentsToCheck.filter(key => {
-    const isFull = data[key] >= threshold;
-    const recentlyNotified = lastNotified[key] && (now - lastNotified[key] < 10 * 60 * 1000); // 10 menit cooldown
-    return isFull && !recentlyNotified;
+  const fullCompartments = compartments.filter(key => {
+    const alreadyNotified = lastNotified[key];
+    return data[key] >= threshold && (!alreadyNotified || now - alreadyNotified > 10 * 60 * 1000); // cooldown 10 menit
   });
 
-  if (fullCompartments.length > 0) {
-    const tokensSnapshot = await db.ref('device_tokens').once('value');
-    const tokensData = tokensSnapshot.val() || {};
-    const tokens = Object.values(tokensData)
-      .map(item => item.token)
-      .filter(token => token && typeof token === 'string');
+  if (fullCompartments.length === 0) return;
 
-    if (tokens.length === 0) {
-      console.log("⚠️ Tidak ada token pengguna terdaftar.");
-      return;
-    }
+  // Ambil token dari database
+  const tokensSnapshot = await db.ref('device_tokens').once('value');
+  const tokensData = tokensSnapshot.val() || {};
+  const tokens = Object.values(tokensData)
+    .map(item => item.token)
+    .filter(token => typeof token === 'string');
 
-    for (const compartment of fullCompartments) {
-      const name = getSensorName(compartment);
-      const volume = data[compartment];
+  if (tokens.length === 0) {
+    console.log("⚠️ Tidak ada token pengguna.");
+    return;
+  }
 
-      await sendNotification(
-        tokens,
-        `Kompartemen ${name} Penuh!`,
-        `Volume ${name} telah mencapai ${volume}%. Segera kosongkan.`
-      );
+  for (const key of fullCompartments) {
+    const name = getSensorName(key);
+    const volume = data[key];
 
-      lastNotified[compartment] = now;
-    }
-  } else {
-    console.log("✅ Tidak ada kompartemen yang penuh saat ini.");
+    await sendNotification(
+      tokens,
+      `Kompartemen ${name} Penuh!`,
+      `Volume ${name} mencapai ${volume}%. Segera kosongkan.`
+    );
+
+    lastNotified[key] = now; // Simpan waktu notifikasi
   }
 });
 
-// 🔍 Fungsi helper
+// Helper: Ubah key menjadi nama sensor
 function getSensorName(key) {
   return key === 'botol' ? 'Botol' :
          key === 'kaleng' ? 'Kaleng' :
          key === 'kertas' ? 'Kertas' :
-         key === 'lainnya' ? 'Lainnya' :
-         key;
+         key === 'lainnya' ? 'Lainnya' : key;
 }
 
-// 🛠 Endpoint cek token manual (opsional)
+// Endpoint untuk cek semua token
 app.get('/check-tokens', async (req, res) => {
   try {
     const snapshot = await db.ref('device_tokens').once('value');
@@ -151,8 +152,7 @@ app.get('/check-tokens', async (req, res) => {
   }
 });
 
-// 🚀 Start server
+// Start server
 app.listen(port, () => {
-  console.log(`🌐 Server listening on port ${port}`);
-  console.log("📡 Menunggu perubahan volume sampah...");
+  console.log(`🚀 Server listening on port ${port}`);
 });
