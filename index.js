@@ -24,7 +24,7 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Endpoint: Simpan token Expo dari client
+// Simpan token dari client
 app.post('/register-token', async (req, res) => {
   const { token, userId } = req.body;
 
@@ -34,27 +34,27 @@ app.post('/register-token', async (req, res) => {
 
   try {
     await db.ref(`device_tokens/${userId}`).set({ token });
-    console.log("Token Expo diterima:", token, "untuk user:", userId);
+    console.log("✅ Token Expo diterima:", token, "untuk user:", userId);
     res.json({ success: true, message: 'Token berhasil disimpan' });
   } catch (error) {
     res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
   }
 });
 
-// Kirim notifikasi via Expo Push API
+// Kirim notifikasi ke semua token
 async function sendNotification(tokens, title, body) {
-  if (!tokens || tokens.length === 0) return;
+  if (!tokens.length) return;
 
   const messages = tokens.map(token => ({
     to: token,
     sound: 'default',
-    title: title,
-    body: body,
+    title,
+    body,
     data: { title, body }
   }));
 
   try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -63,68 +63,71 @@ async function sendNotification(tokens, title, body) {
       body: JSON.stringify(messages.length === 1 ? messages[0] : messages),
     });
 
-    const data = await response.json();
-    console.log("Notifikasi dikirim (Expo):", data);
-  } catch (error) {
-    console.error('Gagal kirim notifikasi Expo:', error);
+    const data = await res.json();
+    console.log("📨 Notifikasi dikirim (Expo):", data);
+  } catch (err) {
+    console.error("❌ Gagal kirim notifikasi:", err);
   }
 }
 
-// Helper untuk sensor name
+// Helper nama kompartemen
 function getSensorName(key) {
   return key === 'botol' ? 'Botol' :
          key === 'kaleng' ? 'Kaleng' :
          key === 'kertas' ? 'Kertas' :
-         key === 'lainnya' ? 'Lainnya' : key;
+         key === 'lainnya' ? 'Lainnya' :
+         key;
 }
 
-// Cache notifikasi terakhir per kompartemen (anti-spam)
-const lastNotified = {}; // { botol: timestamp, kaleng: timestamp, ... }
-const cooldownMs = 10 * 60 * 1000; // 10 menit cooldown per kompartemen
+// Cache notifikasi terakhir (per kompartemen)
+const lastNotified = {}; // e.g. { botol: 1717755881231 }
+const cooldownMs = 10 * 60 * 1000; // 10 menit
 
-// Real-time listener ke Firebase
+// Real-time listener tiap perubahan volume kompartemen
 const compartmentsRef = db.ref("compartments");
 
-compartmentsRef.on("value", async (snapshot) => {
-  const data = snapshot.val();
-  if (!data) return;
+compartmentsRef.on("child_changed", async (snapshot) => {
+  const key = snapshot.key;      // Misal: 'botol'
+  const volume = snapshot.val(); // Misal: 85
+
+  if (!key || volume == null) return;
 
   const now = Date.now();
   const threshold = 80;
-  const compartmentsToCheck = ['botol', 'kaleng', 'kertas', 'lainnya'];
 
-  const fullCompartments = compartmentsToCheck.filter(key =>
-    data[key] >= threshold && (!lastNotified[key] || now - lastNotified[key] > cooldownMs)
-  );
+  if (volume < threshold) return; // tidak cukup penuh
 
-  if (fullCompartments.length === 0) return;
-
-  const tokensSnapshot = await db.ref('device_tokens').once('value');
-  const tokensData = tokensSnapshot.val() || {};
-  const tokens = Object.values(tokensData)
-    .map(item => item.token)
-    .filter(token => token && typeof token === 'string');
-
-  if (tokens.length === 0) {
-    console.log("❌ Tidak ada token terdaftar.");
+  // Cek apakah sudah dikirim notifikasi dalam 10 menit terakhir
+  if (lastNotified[key] && now - lastNotified[key] < cooldownMs) {
+    console.log(`🔕 ${key} sudah dikirim notifikasi dalam 10 menit.`);
     return;
   }
 
-  for (const key of fullCompartments) {
+  try {
+    // Ambil semua token pengguna
+    const tokenSnap = await db.ref("device_tokens").once("value");
+    const tokensData = tokenSnap.val() || {};
+    const tokens = Object.values(tokensData)
+      .map(entry => entry.token)
+      .filter(token => typeof token === 'string' && token.startsWith("ExponentPushToken"));
+
+    if (!tokens.length) {
+      console.log("❌ Tidak ada token yang tersimpan.");
+      return;
+    }
+
     const name = getSensorName(key);
-    const volume = data[key];
+    const title = `Kompartemen ${name} Penuh!`;
+    const body = `Volume ${name} sudah mencapai ${volume}%. Segera kosongkan.`;
 
-    await sendNotification(
-      tokens,
-      `Kompartemen ${name} Penuh!`,
-      `Volume ${name} mencapai ${volume}%. Segera kosongkan.`
-    );
-
+    await sendNotification(tokens, title, body);
     lastNotified[key] = now;
+  } catch (err) {
+    console.error("⚠️ Gagal proses notifikasi real-time:", err);
   }
 });
 
-// Endpoint debug untuk cek token
+// Debug token
 app.get('/check-tokens', async (req, res) => {
   const snapshot = await db.ref('device_tokens').once('value');
   const tokensData = snapshot.val();
@@ -138,7 +141,7 @@ app.get('/check-tokens', async (req, res) => {
   res.json({ success: true, tokens: result });
 });
 
-// Start Express
+// Start server
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di port ${port}`);
 });
