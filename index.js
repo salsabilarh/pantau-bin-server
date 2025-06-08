@@ -32,23 +32,36 @@ app.post('/register-token', async (req, res) => {
   }
 });
 
-// Fungsi untuk kirim notifikasi FCM
+const fetch = require('node-fetch');
+
 async function sendNotification(tokens, title, body) {
-  if (tokens.length === 0) {
-    console.log("Tidak ada device token.");
+  if (!tokens || tokens.length === 0) {
+    console.log("Tidak ada Expo Push Token.");
     return;
   }
 
-  const message = {
-    notification: { title, body },
-    tokens: tokens,
-  };
+  const messages = tokens.map(token => ({
+    to: token,
+    sound: 'default',
+    title: title,
+    body: body,
+  }));
 
   try {
-    const response = await admin.messaging().sendMulticast(message);
-    console.log(`Notifikasi terkirim ke ${response.successCount} device(s).`);
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages),
+    });
+
+    const data = await response.json();
+    console.log('Response dari Expo:', data);
   } catch (error) {
-    console.error("Gagal kirim notifikasi:", error);
+    console.error('Gagal kirim notifikasi Expo:', error);
   }
 }
 
@@ -68,26 +81,39 @@ async function checkCompartments() {
     const fullCompartments = compartmentsToCheck.filter(key => data[key] >= threshold);
 
     if (fullCompartments.length > 0) {
-      const tokensRef = db.ref('device_tokens');
-      const tokensSnapshot = await tokensRef.once('value');
-      const tokensData = tokensSnapshot.val() || {};
+    const tokensRef = db.ref('device_tokens');
+    const tokensSnapshot = await tokensRef.once('value');
+    const tokensData = tokensSnapshot.val() || {};
 
-      const tokens = Object.values(tokensData)
+    const tokens = Object.values(tokensData)
         .map(item => item.token)
-        .filter(Boolean);
+        .filter(token => token && token.startsWith('ExponentPushToken'));
 
-      for (const compartment of fullCompartments) {
+    for (const compartment of fullCompartments) {
         const name = getSensorName(compartment);
         const volume = data[compartment];
         await sendNotification(
-          tokens,
-          `Kompartemen ${name} Penuh!`,
-          `Volume ${name} telah mencapai ${volume}%. Segera kosongkan.`
+        tokens,
+        `Kompartemen ${name} Penuh!`,
+        `Volume ${name} telah mencapai ${volume}%. Segera kosongkan.`
         );
-      }
+    }
     }
   });
 }
+
+app.post('/test-notif', async (req, res) => {
+  const tokensRef = db.ref('device_tokens');
+  const tokensSnapshot = await tokensRef.once('value');
+  const tokensData = tokensSnapshot.val() || {};
+
+  const tokens = Object.values(tokensData)
+    .map(item => item.token)
+    .filter(token => token && token.startsWith('ExponentPushToken'));
+
+  await sendNotification(tokens, 'Tes Notifikasi', 'Notifikasi berhasil dikirim dari backend.');
+  res.json({ success: true });
+});
 
 // Fungsi helper untuk nama sensor
 function getSensorName(key) {
