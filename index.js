@@ -67,7 +67,13 @@ async function sendNotification(tokens, title, body) {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(messages.length === 1 ? messages[0] : messages),
+      body: JSON.stringify({
+        to: token,
+        sound: 'default',
+        title: 'Judul Notifikasi',
+        body: 'Isi notifikasi di sini',
+        data: { someData: 'value' },
+      }),
     });
 
     const data = await res.json();
