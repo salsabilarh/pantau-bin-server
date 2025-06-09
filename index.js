@@ -13,7 +13,7 @@ let serviceAccount;
 try {
   serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 } catch (err) {
-  console.error("❌ Gagal parse SERVICE_ACCOUNT_KEY:", err);
+  console.error("Gagal parse SERVICE_ACCOUNT_KEY:", err);
   process.exit(1);
 }
 
@@ -33,8 +33,15 @@ app.post('/register-token', async (req, res) => {
   }
 
   try {
+    const currentTokenSnap = await db.ref(`device_tokens/${userId}/token`).once("value");
+    const currentToken = currentTokenSnap.val();
+
+    if (currentToken === token) {
+      return res.json({ success: true, message: 'Token sudah tersimpan dan sama' });
+    }
+
     await db.ref(`device_tokens/${userId}`).set({ token });
-    console.log("✅ Token Expo diterima:", token, "untuk user:", userId);
+    console.log("Token Expo diperbarui:", token, "untuk user:", userId);
     res.json({ success: true, message: 'Token berhasil disimpan' });
   } catch (error) {
     res.status(500).json({ error: 'Gagal menyimpan token', detail: error.message });
@@ -64,9 +71,9 @@ async function sendNotification(tokens, title, body) {
     });
 
     const data = await res.json();
-    console.log("📨 Notifikasi dikirim:", data);
+    console.log("Notifikasi dikirim:", data);
   } catch (err) {
-    console.error("❌ Gagal kirim notifikasi:", err);
+    console.error("Gagal kirim notifikasi:", err);
   }
 }
 
@@ -106,7 +113,7 @@ compartmentsRef.on("child_changed", async (snapshot) => {
         .filter(token => typeof token === 'string' && token.startsWith("ExponentPushToken"));
 
       if (!tokens.length) {
-        console.log("❌ Tidak ada token yang tersimpan.");
+        console.log("Tidak ada token yang tersimpan.");
         return;
       }
 
@@ -115,12 +122,12 @@ compartmentsRef.on("child_changed", async (snapshot) => {
       const body = `Volume ${name} sudah mencapai ${volume}%. Segera kosongkan.`;
 
       await sendNotification(tokens, title, body);
-      console.log(`✅ Notifikasi dikirim untuk ${key} pada volume ${volume}%`);
+      console.log(`Notifikasi dikirim untuk ${key} pada volume ${volume}%`);
     } catch (err) {
-      console.error("⚠️ Gagal memproses notifikasi:", err);
+      console.error("Gagal memproses notifikasi:", err);
     }
   } else {
-    console.log(`ℹ️ ${key} volume berubah ${previous}% → ${volume}%. Tidak kirim notifikasi.`);
+    console.log(`${key} volume berubah ${previous}% → ${volume}%. Tidak kirim notifikasi.`);
   }
 });
 
@@ -140,5 +147,5 @@ app.get('/check-tokens', async (req, res) => {
 
 // Mulai server
 app.listen(port, () => {
-  console.log(`🚀 Server berjalan di port ${port}`);
+  console.log(`Server berjalan di port ${port}`);
 });
